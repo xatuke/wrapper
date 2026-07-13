@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { generateCompose } from "../compose.js";
 import { upsertEnvFile, readEnvFile } from "../env-file.js";
@@ -15,6 +15,19 @@ import {
 
 const hex = (n: number) => randomBytes(n).toString("hex");
 
+/** Shared provider keys live in agents/.env (the user's own repo territory);
+ * a legacy root .env keeps working (per-agent > agents/.env > root). */
+function ensureSharedEnvStub(root: string): void {
+  if (existsSync(join(root, ".env")) || existsSync(join(root, "agents", ".env"))) return;
+  mkdirSync(join(root, "agents"), { recursive: true });
+  writeFileSync(
+    join(root, "agents", ".env"),
+    "# Shared provider API keys for all agents (per-agent .env overrides these)\n" +
+      "#ANTHROPIC_API_KEY=\n#OPENAI_API_KEY=\n#GEMINI_API_KEY=\n",
+    { mode: 0o600 },
+  );
+}
+
 export async function initCommand(opts: { teamId?: string; skipStack?: boolean }): Promise<void> {
   const root = findRoot();
   const config = loadWrapperConfig(root);
@@ -25,15 +38,7 @@ export async function initCommand(opts: { teamId?: string; skipStack?: boolean }
   // Bring-your-own Langfuse: no stack to configure or start. Project keys are
   // supplied by the user (wrapper.secrets.json or env) — see docs/langfuse.md.
   if (config.langfuse.external) {
-    const rootEnvFile = join(root, ".env");
-    if (!existsSync(rootEnvFile)) {
-      writeFileSync(
-        rootEnvFile,
-        "# Shared provider API keys for all agents (per-agent .env overrides these)\n" +
-          "#ANTHROPIC_API_KEY=\n#OPENAI_API_KEY=\n#GEMINI_API_KEY=\n",
-        { mode: 0o600 },
-      );
-    }
+    ensureSharedEnvStub(root);
     generateCompose(root);
     saveWrapperConfig(root, config);
     saveSecrets(root, secrets);
@@ -88,16 +93,8 @@ export async function initCommand(opts: { teamId?: string; skipStack?: boolean }
   secrets.langfuseProjectPublicKey = lfEnv.LANGFUSE_INIT_PROJECT_PUBLIC_KEY;
   secrets.langfuseProjectSecretKey = lfEnv.LANGFUSE_INIT_PROJECT_SECRET_KEY;
 
-  // 2. Root .env for shared provider keys.
-  const rootEnv = join(root, ".env");
-  if (!existsSync(rootEnv)) {
-    writeFileSync(
-      rootEnv,
-      "# Shared provider API keys for all agents (per-agent .env overrides these)\n" +
-        "#ANTHROPIC_API_KEY=\n#OPENAI_API_KEY=\n#GEMINI_API_KEY=\n",
-      { mode: 0o600 },
-    );
-  }
+  // 2. agents/.env for shared provider keys.
+  ensureSharedEnvStub(root);
 
   generateCompose(root);
   saveWrapperConfig(root, config);

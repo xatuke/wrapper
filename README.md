@@ -31,7 +31,7 @@ cp wrapper.example.yaml wrapper.yaml          # set your Slack team ID
 alias wrapper="node $PWD/packages/cli/dist/index.js"
 
 wrapper init --team-id T0XXXXXXXXX            # starts Langfuse, provisions org
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> agents/.env
 
 wrapper agent add support-bot --channels "#support"
 wrapper up support-bot                        # then /invite @support-bot in Slack

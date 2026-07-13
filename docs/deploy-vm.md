@@ -36,7 +36,7 @@ alias wrapper="node $PWD/packages/cli/dist/index.js"
 
 cp wrapper.example.yaml wrapper.yaml   # target: local, your slackTeamId
 wrapper init --team-id T0XXXXXXXXX
-echo 'ANTHROPIC_API_KEY=sk-ant-...' >> .env
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> agents/.env
 
 wrapper agent add my-agent --channels "#somewhere"
 wrapper up my-agent
@@ -70,7 +70,7 @@ an external Langfuse and there's nothing to tunnel.
 
 - **Bedrock without static keys**: attach an instance role whose policy allows
   `bedrock:InvokeModel` + `bedrock:InvokeModelWithResponseStream`, set
-  `AWS_REGION=<region>` in the root `.env`, and use a
+  `AWS_REGION=<region>` in `agents/.env`, and use a
   `model: amazon-bedrock/...` in `agent.yaml`. pi's Bedrock provider uses the
   AWS SDK default credential chain, which finds the instance role — no
   `AWS_ACCESS_KEY_ID` on disk. (Set IMDSv2 `HttpTokens=required`; the SDK
@@ -80,7 +80,7 @@ an external Langfuse and there's nothing to tunnel.
 ### GCP Compute Engine
 
 - Use API-key providers (`anthropic/...` with `ANTHROPIC_API_KEY`,
-  `openai/...`, Gemini with `GEMINI_API_KEY`, etc.) in the root `.env`.
+  `openai/...`, Gemini with `GEMINI_API_KEY`, etc.) in `agents/.env`.
 - A GCE service account on the VM is useful for *your tools* (e.g. BigQuery,
   GCS clients pick up Application Default Credentials) — scope it minimally.
 

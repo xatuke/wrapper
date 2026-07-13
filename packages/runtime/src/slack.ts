@@ -1,5 +1,6 @@
 import bolt from "@slack/bolt";
 import type { AgentConfig } from "./config.js";
+import type { PendingStore } from "./pending.js";
 
 const { App } = bolt;
 
@@ -29,6 +30,7 @@ export async function startSlack(
   config: AgentConfig,
   tokens: { botToken: string; appToken: string },
   onTurn: TurnHandler,
+  pending: PendingStore,
 ): Promise<SlackConnection> {
   const app = new App({
     token: tokens.botToken,
@@ -73,6 +75,23 @@ export async function startSlack(
     const sessionKey = isDm ? `dm-${event.channel}` : `${event.channel}-${threadTs}`;
 
     const placeholder = await say({ text: "_thinking…_", thread_ts: isDm ? undefined : threadTs });
+
+    // Write-ahead: record the turn BEFORE running it, so a mid-turn pod death
+    // leaves a record the next pod resumes (see main.ts). Removed on completion.
+    const pendingId = `${event.channel}-${event.ts}`;
+    pending.add({
+      id: pendingId,
+      sessionKey,
+      channel: event.channel,
+      threadTs: isDm ? undefined : threadTs,
+      userId: event.user,
+      input: text,
+      placeholderChannel: placeholder.channel,
+      placeholderTs: placeholder.ts,
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    });
+
     try {
       const reply = await onTurn({
         sessionKey,
@@ -93,6 +112,10 @@ export async function startSlack(
         ts: placeholder.ts,
         text: `:warning: agent error: ${err?.message ?? err}`,
       });
+    } finally {
+      // Handled success OR handled error both mean "done, don't resume". Only a
+      // hard crash (process killed) skips this and leaves the record behind.
+      pending.remove(pendingId);
     }
   }
 

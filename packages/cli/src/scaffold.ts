@@ -43,6 +43,7 @@ slack/.slack/
 
 const AGENTS_DIR_GITIGNORE = `# Secrets & local state of ALL agents — applies when this folder (or a parent
 # of it) is its own git repo. Never commit these.
+.env
 */.env
 */data/
 */slack/.slack/
@@ -58,7 +59,9 @@ Committing your \`wrapper.yaml\` here too makes your deployment restorable
 from this one private repo (the CLI reads agents/wrapper.yaml when the repo
 root has none).
 
-Never commit: .env files, data/, slack/.slack/, service-account JSONs.
+Shared provider API keys for all agents live in .env here (per-agent .env
+overrides them). Never commit: .env files, data/, slack/.slack/,
+service-account JSONs.
 
 How to build agents: see docs/agents.md in the wrapper repo.
 `;

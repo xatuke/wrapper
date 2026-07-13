@@ -107,6 +107,28 @@ the sandbox. Hardening for every agent, strictest defaults for `mode: workspace`
 - **webhook**: a single small `gateway` service owns ingress and forwards over the
   internal network to agent containers (agents themselves stay outbound-only)
 
+## Restart safety: graceful drain + turn resume (2026-07-13)
+
+A rolling restart (`Recreate` strategy — required for single Socket Mode conn)
+kills the pod; Slack Socket Mode never redelivers the dropped event, so a
+request in flight at that instant was silently lost with a stranded "thinking…".
+Two complementary mechanisms fix this:
+
+- **Graceful drain** (`main.ts` shutdown): on SIGTERM, stop the scheduler, then
+  await in-flight turns (tracked in an `inflight` Set) up to `DRAIN_MS` (default
+  45s) before closing — so turns that finish in time update their placeholders
+  normally. `terminationGracePeriodSeconds: 60` in the manifest gives it room.
+- **Turn resume / write-ahead** (`pending.ts` + `main.ts`): every Slack-triggered
+  turn is recorded to `/data/pending/<id>.json` BEFORE it runs (with its
+  placeholder channel+ts) and deleted on completion (success or handled error,
+  via `finally`). Only a hard crash leaves the record. On startup, `resumePending`
+  re-runs each leftover request through the same turn path and updates the
+  stranded placeholder in place. `attempts` counter caps retries at 3 (poison
+  message → posts "dropped, re-send" and clears). At-least-once: a turn that
+  partially ran side effects (upload/sheets_write) before dying may repeat them
+  on resume — acceptable trade for never silently dropping a request. Cron turns
+  are NOT write-ahead-logged (the scheduler re-fires them naturally).
+
 ## Runtime features (agent.yaml `features:`)
 
 Opt-in builtins, all persisted on the agent's `/data` volume:
@@ -115,8 +137,44 @@ Opt-in builtins, all persisted on the agent's `/data` volume:
   first line is a summary injected into the system prompt every turn.
 - `workspace` — workspace_write/read/list/delete over `/data/workspace/`
   (path-sandboxed, truncated reads with offset paging).
-The current Slack channel/user reach builtin tools via AsyncLocalStorage
-(`turn-context.ts`) — e.g. cron_add defaults to the conversation's channel.
+- `code` — `bash` + `python` in a persistent sandbox on /data/workspace. A venv
+  (`--system-site-packages`) is created lazily; runtime `pip install` persists.
+  **The sandbox env is secret-stripped** (`builtins/sandbox-env.ts`): all
+  TOKEN/KEY/SECRET/PASSWORD/_B64 vars AND the AWS_/CMS_/TRENDS_/LANGFUSE_/SLACK_/
+  GOOGLE_ prefixes are removed — dropping AWS_* denies the IRSA web-identity
+  token, so sandboxed code can't reach Secrets Manager or Bedrock. Data flows in
+  via files the agent stages (its data tools run in the main process, which keeps
+  the creds). This is the interim containment for the "code-exec shares a process
+  with prod creds" risk; the longer-term fix is a creds broker sidecar.
+- `slack-files` — `slack_upload` (Bolt `files.uploadV2`) sends a workspace file
+  to the current channel/thread. Needs the `files:write` bot scope (now in the
+  framework's default manifest scopes).
+- `pdf` — `html_to_pdf` renders an HTML report (inline or a workspace file) to a
+  workspace PDF via headless Chromium's `--print-to-pdf` (CHROMIUM_BIN env,
+  default the agent's `--no-sandbox` wrapper). No extra deps; needs a chromium in
+  the image. Pairs with slack_upload for polished report decks.
+The current Slack channel/user/thread reach builtin tools via AsyncLocalStorage
+(`turn-context.ts`) — e.g. cron_add and slack_upload default to the
+conversation's channel/thread.
+
+## MCP bridge (agent.yaml `mcpServers:`)
+
+pi has no MCP client, so the runtime bridges stdio MCP servers itself
+(`mcp.ts`): each `{name, command, args, env}` is spawned via the MCP SDK's
+StdioClientTransport, its tools are wrapped as AgentTools named `<name>_<tool>`,
+the raw MCP JSON inputSchema is used directly as `parameters` (pi passes it
+straight through to the provider — no typebox needed), and MCP result content is
+down-converted to pi's text|image blocks (image screenshots flow back to the
+model natively). MCP subprocesses get the same secret-stripped sandbox env.
+liza runs `chrome-devtools-mcp` (headless system chromium via a `--no-sandbox`
+wrapper, since the hardened pod can't use Chrome's setuid sandbox).
+
+## Per-agent k8s resources (agent.yaml `resources:`)
+
+`manifests.ts` reads `resources.{requests,limits}.{cpu,memory}` (defaults
+100m/256Mi req, 1/1Gi limit). Agents declaring `mcpServers` (browser) also get a
+memory-backed `/dev/shm` emptyDir (512Mi) so Chrome doesn't crash on the default
+64Mi. liza: 500m/2Gi req, 2/4Gi limit.
 
 ## Slack app automation (verified 2026-07-07 with slack-cli v4.4.0)
 

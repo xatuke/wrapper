@@ -99,7 +99,7 @@ injected into pods from `k8s.awsRegion`.
 
 **Option B — provider API keys**: `wrapper env set my-agent
 ANTHROPIC_API_KEY=…` (lands in the agent's Secret) and `model: anthropic/…`.
-Note that in k8s mode there is no shared root `.env` — keys are per agent.
+Note that in k8s mode there is no shared `agents/.env` — keys are per agent.
 
 ## Production hardening checklist
 

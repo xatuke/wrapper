@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export interface TurnContext {
   channel?: string;
   userId?: string;
+  threadTs?: string;
   trigger?: string;
 }
 

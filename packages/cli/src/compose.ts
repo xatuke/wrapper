@@ -38,8 +38,10 @@ export function generateCompose(root: string): string {
         ? { context: ".", dockerfile: `agents/${name}/Dockerfile` }
         : { context: ".", dockerfile: "docker/runtime.Dockerfile" },
       restart: "unless-stopped",
+      // later files override earlier: per-agent > agents/.env > root .env
       env_file: [
         ...(existsSync(join(root, ".env")) ? ["./.env"] : []),
+        ...(existsSync(join(root, "agents", ".env")) ? ["./agents/.env"] : []),
         `./agents/${name}/.env`,
       ],
       environment: {

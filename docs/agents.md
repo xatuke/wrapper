@@ -48,13 +48,38 @@ tools:                        # custom tool modules, paths relative to this dir
   - ./tools/lookup-order.ts
 features: [cron, memory, workspace]   # opt-in runtime builtins (see below)
 thinkingLevel: medium         # optional; passed through to the model
+
+resources:                    # optional (k8s): per-agent pod resources
+  requests: { cpu: "500m", memory: "2Gi" }
+  limits:   { cpu: "2",    memory: "4Gi" }
+mcpServers:                   # optional: stdio MCP servers bridged in as tools
+  - name: browser            # tools appear as browser_<toolname>
+    command: node
+    args: [/app/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js,
+           --headless, --isolated, --executablePath=/usr/local/bin/chromium-nosandbox]
 ```
+
+Extra `features`:
+
+- `code` — `bash` + `python` in a persistent /data/workspace sandbox (pandas/
+  numpy/matplotlib preinstalled if your image has them; runtime `pip install`
+  persists in a venv on /data). **The sandbox env is stripped of all secrets and
+  cloud credentials** — pull data with your data tools, stage it to a file, then
+  process it in code.
+- `slack-files` — `slack_upload` sends a workspace file to the current
+  channel/thread (needs the `files:write` bot scope, in the default manifest).
+
+`mcpServers` bridges any stdio MCP server's tools in. `resources` sets the k8s
+pod limits (defaults 100m/256Mi request, 1/1Gi limit); browser agents also get a
+memory-backed `/dev/shm`. Custom images (a `Dockerfile` in the agent dir) are how
+you add the binaries these need — e.g. liza's installs chromium + the python
+stack + chrome-devtools-mcp.
 
 Notes:
 
 - **model** — anything pi-ai resolves: `anthropic/claude-sonnet-4-5`,
   `amazon-bedrock/global.anthropic.claude-sonnet-5`, `openai/...`, etc. The
-  matching credential must be in the environment (root `.env`, the agent's
+  matching credential must be in the environment (shared `agents/.env`, the agent's
   `.env`, or ambient cloud credentials for Bedrock — see the deploy docs).
 - **systemPrompt** — if the value (< 500 chars) is a path to an existing file,
   the file's contents are used; otherwise the value itself is the prompt.

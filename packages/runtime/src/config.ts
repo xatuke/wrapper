@@ -10,8 +10,16 @@ export interface AgentConfig {
   systemPrompt: string; // resolved to the actual prompt text
   channels: string[]; // channel names or IDs the agent responds in; empty = anywhere invited
   tools: string[]; // paths to tool modules, relative to the agent dir
-  features: string[]; // runtime builtins to enable: cron | memory | workspace
+  features: string[]; // runtime builtins to enable: cron | memory | workspace | code | slack-files
+  mcpServers: McpServerConfig[]; // stdio MCP servers to bridge in
   thinkingLevel?: string;
+}
+
+export interface McpServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
 }
 
 export interface RuntimeEnv {
@@ -41,6 +49,7 @@ export async function loadAgentConfig(agentDir: string): Promise<AgentConfig> {
     channels: Array.isArray(raw.channels) ? raw.channels.map(String) : [],
     tools: Array.isArray(raw.tools) ? raw.tools.map(String) : [],
     features: Array.isArray(raw.features) ? raw.features.map(String) : [],
+    mcpServers: Array.isArray(raw.mcpServers) ? raw.mcpServers : [],
     thinkingLevel: raw.thinkingLevel ? String(raw.thinkingLevel) : undefined,
   };
 }

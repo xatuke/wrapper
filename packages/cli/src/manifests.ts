@@ -1,8 +1,29 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { stringify } from "yaml";
+import { parse, stringify } from "yaml";
 import { listAgents } from "./compose.js";
 import type { K8sConfig } from "./root.js";
+
+interface AgentDeployHints {
+  resources?: {
+    requests?: { cpu?: string; memory?: string };
+    limits?: { cpu?: string; memory?: string };
+  };
+  needsBrowser: boolean; // declares mcpServers → needs /dev/shm + more headroom
+}
+
+/** Read the deploy-relevant bits of an agent's agent.yaml. */
+function readAgentHints(root: string, name: string): AgentDeployHints {
+  try {
+    const raw = parse(readFileSync(join(root, "agents", name, "agent.yaml"), "utf8")) ?? {};
+    return {
+      resources: raw.resources,
+      needsBrowser: Array.isArray(raw.mcpServers) && raw.mcpServers.length > 0,
+    };
+  } catch {
+    return { needsBrowser: false };
+  }
+}
 
 export function agentImage(k8s: K8sConfig, name: string): string {
   return `${k8s.registry}/${k8s.repoPrefix}/agents/${name}:latest`;
@@ -40,8 +61,24 @@ function namespaceManifests(k8s: K8sConfig): object[] {
   ];
 }
 
-function agentManifests(k8s: K8sConfig, name: string): object[] {
+function agentManifests(k8s: K8sConfig, name: string, hints: AgentDeployHints): object[] {
   const labels = { app: "wrapper-agent", agent: name };
+  const resources = {
+    requests: {
+      cpu: hints.resources?.requests?.cpu ?? "100m",
+      memory: hints.resources?.requests?.memory ?? "256Mi",
+    },
+    limits: {
+      cpu: hints.resources?.limits?.cpu ?? "1",
+      memory: hints.resources?.limits?.memory ?? "1Gi",
+    },
+  };
+  // Browser agents: Chrome crashes with the default 64Mi /dev/shm, so mount a
+  // memory-backed one. It counts against the pod's memory limit.
+  const shmVolumes = hints.needsBrowser
+    ? [{ name: "dshm", emptyDir: { medium: "Memory", sizeLimit: "512Mi" } }]
+    : [];
+  const shmMounts = hints.needsBrowser ? [{ name: "dshm", mountPath: "/dev/shm" }] : [];
   return [
     {
       apiVersion: "v1",
@@ -68,6 +105,9 @@ function agentManifests(k8s: K8sConfig, name: string): object[] {
           spec: {
             serviceAccountName: k8s.serviceAccount,
             nodeSelector: { "kubernetes.io/arch": k8s.arch },
+            // Give the runtime's graceful drain room to finish in-flight turns
+            // on a rolling restart before k8s SIGKILLs the pod.
+            terminationGracePeriodSeconds: 60,
             securityContext: {
               runAsNonRoot: true,
               runAsUser: 1000,
@@ -91,21 +131,20 @@ function agentManifests(k8s: K8sConfig, name: string): object[] {
                 volumeMounts: [
                   { name: "data", mountPath: "/data" },
                   { name: "tmp", mountPath: "/tmp" },
+                  ...shmMounts,
                 ],
                 securityContext: {
                   readOnlyRootFilesystem: true,
                   allowPrivilegeEscalation: false,
                   capabilities: { drop: ["ALL"] },
                 },
-                resources: {
-                  requests: { cpu: "100m", memory: "256Mi" },
-                  limits: { cpu: "1", memory: "1Gi" },
-                },
+                resources,
               },
             ],
             volumes: [
               { name: "data", persistentVolumeClaim: { claimName: `${deploymentName(name)}-data` } },
               { name: "tmp", emptyDir: {} },
+              ...shmVolumes,
             ],
           },
         },
@@ -132,7 +171,8 @@ export function generateManifests(root: string, k8s: K8sConfig): string[] {
 
   for (const name of listAgents(root)) {
     const file = join(outDir, "agents", `${name}.yaml`);
-    writeFileSync(file, header + agentManifests(k8s, name).map((m) => stringify(m)).join("---\n"));
+    const hints = readAgentHints(root, name);
+    writeFileSync(file, header + agentManifests(k8s, name, hints).map((m) => stringify(m)).join("---\n"));
     files.push(file);
   }
   return files;

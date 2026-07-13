@@ -11,6 +11,7 @@ const BOT_SCOPES = [
   "chat:write",
   "im:history",
   "im:write",
+  "files:write",
 ];
 
 export function buildManifest(agentName: string): object {
