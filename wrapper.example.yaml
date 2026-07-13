@@ -1,0 +1,54 @@
+# wrapper deployment config — copy to wrapper.yaml and edit.
+# wrapper.yaml is gitignored: it describes YOUR deployment (cluster ARNs,
+# registries, team IDs), not the framework. To version it, put it at
+# agents/wrapper.yaml inside your own agents repo instead (the CLI checks the
+# repo root first, then agents/ — see agents/README.md).
+
+# Where agents run:
+#   local — docker compose on this machine (or a plain cloud VM), including a
+#           self-hosted Langfuse stack. See docs/getting-started.md.
+#   k8s   — build+push images to a registry and deploy to a Kubernetes cluster.
+#           See docs/deploy-k8s-aws.md / docs/deploy-k8s-gcp.md.
+target: local
+
+# Slack workspace the agents' apps are created in (`wrapper init --team-id ...`).
+# Find it in Slack: workspace name → "About this workspace", or `slack auth list`.
+slackTeamId: T0XXXXXXXXX
+
+langfuse:
+  # Reachable from where you run the CLI (used for health checks/provisioning).
+  baseUrl: http://localhost:3010
+  orgId: wrapper
+  # Bring-your-own Langfuse (self-hosted or cloud.langfuse.com) instead of the
+  # bundled local stack — see docs/langfuse.md:
+  #external: true
+  #baseUrl: https://langfuse.mycompany.com
+  # URL agents use from INSIDE their containers, if different from baseUrl
+  # (e.g. http://host.docker.internal:3000 for a Langfuse on this host):
+  #containerBaseUrl: https://langfuse.mycompany.com
+
+# Only needed when target: k8s — delete this block for local mode.
+k8s:
+  # kubectl context to use ("" = current context).
+  # EKS example: arn:aws:eks:ap-south-1:<ACCOUNT_ID>:cluster/<CLUSTER>
+  # GKE example: gke_<PROJECT>_<REGION>_<CLUSTER>
+  context: ""
+  namespace: wrapper-agents
+  serviceAccount: wrapper-agents
+  # Container registry host images are pushed to.
+  # ECR:               <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
+  # Artifact Registry: <REGION>-docker.pkg.dev/<PROJECT>/<REPO>
+  registry: <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
+  # Image path prefix → <registry>/<repoPrefix>/wrapper-runtime and
+  # <registry>/<repoPrefix>/agents/<name>
+  repoPrefix: myteam
+  # StorageClass for each agent's 1Gi session PVC (EKS: gp3, GKE: standard-rwo).
+  storageClass: gp3
+  # Node CPU architecture: image build platform + nodeSelector (arm64 | amd64).
+  arch: arm64
+  # Used for ECR login and injected as AWS_REGION in pods (Bedrock/IRSA).
+  awsRegion: ap-south-1
+  # Langfuse endpoint reachable FROM INSIDE the cluster (include any basepath).
+  langfuseBaseUrl: http://langfuse-web.langfuse.svc.cluster.local:3000
+  # Optional: human-facing Langfuse URL, shown by `wrapper status`.
+  langfuseUiUrl: https://langfuse.example.com

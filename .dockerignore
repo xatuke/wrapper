@@ -1,0 +1,10 @@
+# Never let agent secrets into any image build context.
+agents/*/.env
+agents/*/.env.*
+agents/*/*service-account*.json
+agents/*/.edgerc*
+agents/*/data/
+node_modules
+.git
+# nested agent git repos (agents are version-controlled separately — agents/README.md)
+**/.git

@@ -1,0 +1,28 @@
+.claude/
+
+node_modules/
+dist/
+*.log
+.DS_Store
+
+# Hosted agents are YOURS, not wrapper's — the whole folder is untracked so
+# you can make agents/ (or each agent dir) its own git repo and pull wrapper
+# updates independently. `wrapper agent add` scaffolds a README + secret-
+# excluding .gitignore files in there; example agent content lives in
+# docs/agents.md and the scaffolder itself.
+/agents/
+
+# secrets & local state
+/.env
+.slack/
+wrapper.secrets.json
+
+# generated (only the root compose file — infra/langfuse/docker-compose.yml is source)
+/docker-compose.yml
+/k8s/
+infra/langfuse/.env
+agents/*/*service-account*.json
+
+# deployment-specific config (copy the .example files to create yours)
+/wrapper.yaml
+
