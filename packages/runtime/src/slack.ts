@@ -14,6 +14,13 @@ export interface IncomingMessage {
 
 export type TurnHandler = (msg: IncomingMessage) => Promise<string>;
 
+/**
+ * Called before a message starts a new turn. If a turn is already running in
+ * the same conversation the message is handed to it instead: "stop" aborts it,
+ * anything else is injected into it. "idle-stop" = a stop with nothing running.
+ */
+export type InterruptHandler = (sessionKey: string, text: string, userId: string) => "stopped" | "injected" | "idle-stop" | undefined;
+
 export interface SlackConnection {
   app: InstanceType<typeof App>;
   botUserId: string;
@@ -23,14 +30,19 @@ export interface SlackConnection {
 /**
  * Connects via Socket Mode. The agent answers:
  *  - @mentions in channels (thread-scoped sessions)
- *  - every message in DMs (channel-scoped sessions)
+ *  - messages in DMs (channel-scoped sessions)
  * If config.channels is non-empty it acts as an allowlist for channel events.
+ * If config.dmUsers is non-empty, only those users get DM replies (IDs,
+ * @handles, or emails — resolved to IDs at startup).
  */
 export async function startSlack(
   config: AgentConfig,
   tokens: { botToken: string; appToken: string },
   onTurn: TurnHandler,
   pending: PendingStore,
+  onInterrupt?: InterruptHandler,
+  /** Is the agent already part of this conversation (running or saved session)? */
+  isEngaged?: (sessionKey: string) => boolean,
 ): Promise<SlackConnection> {
   const app = new App({
     token: tokens.botToken,
@@ -64,6 +76,54 @@ export async function startSlack(
     }
   }
 
+  // Resolve the DM allowlist (IDs pass through; @handles / display names /
+  // emails are matched against the workspace member list). Fail-closed: when
+  // dmUsers is configured, unresolved entries mean fewer allowed users — never
+  // an open bot.
+  const dmRestricted = config.dmUsers.length > 0;
+  const dmAllowed = new Set<string>();
+  if (dmRestricted) {
+    const unresolved: string[] = [];
+    const wanted = new Map<string, string>(); // normalized handle/email -> original
+    for (const u of config.dmUsers) {
+      if (/^[UW][A-Z0-9]{6,}$/.test(u)) dmAllowed.add(u);
+      else wanted.set(u.replace(/^@/, "").toLowerCase(), u);
+    }
+    if (wanted.size > 0) {
+      try {
+        let cursor: string | undefined;
+        do {
+          const res = await app.client.users.list({ limit: 200, cursor });
+          for (const m of res.members ?? []) {
+            const keys = [
+              m.name,
+              m.profile?.display_name,
+              m.profile?.real_name,
+              m.profile?.email,
+            ]
+              .filter(Boolean)
+              .map((s) => String(s).toLowerCase());
+            if (m.id && keys.some((k) => wanted.has(k))) {
+              dmAllowed.add(m.id);
+              for (const k of keys) wanted.delete(k);
+            }
+          }
+          cursor = res.response_metadata?.next_cursor || undefined;
+        } while (cursor);
+      } catch (err: any) {
+        console.warn("[slack] could not resolve dmUsers:", err?.data?.error ?? err?.message);
+      }
+      unresolved.push(...wanted.values());
+    }
+    if (unresolved.length > 0) {
+      console.warn(`[slack] dmUsers not found in workspace: ${unresolved.join(", ")}`);
+    }
+    if (dmAllowed.size === 0) {
+      console.warn("[slack] dmUsers configured but NONE resolved — all DMs will be refused");
+    }
+    console.log(`[slack] DMs restricted to ${dmAllowed.size} user(s)`);
+  }
+
   async function handle(event: any, say: any, client: any, stripMention: boolean) {
     if (event.bot_id || event.user === botUserId) return;
     let text: string = event.text ?? "";
@@ -74,7 +134,25 @@ export async function startSlack(
     const threadTs = event.thread_ts ?? event.ts;
     const sessionKey = isDm ? `dm-${event.channel}` : `${event.channel}-${threadTs}`;
 
-    const placeholder = await say({ text: "_thinking…_", thread_ts: isDm ? undefined : threadTs });
+    const replyThread = isDm ? undefined : threadTs;
+    const intr = onInterrupt?.(sessionKey, text, event.user);
+    if (intr === "stopped") {
+      await say({ text: ":octagonal_sign: Stopping…", thread_ts: replyThread });
+      return;
+    }
+    if (intr === "idle-stop") {
+      await say({ text: "Nothing is running right now.", thread_ts: replyThread });
+      return;
+    }
+    if (intr === "injected") {
+      // Acknowledge without a new placeholder — the running turn's reply covers it.
+      await client.reactions
+        .add({ channel: event.channel, timestamp: event.ts, name: "eyes" })
+        .catch(() => say({ text: "_Got it — adding that to what I'm working on._", thread_ts: replyThread }));
+      return;
+    }
+
+    const placeholder = await say({ text: "_thinking…_", thread_ts: replyThread });
 
     // Write-ahead: record the turn BEFORE running it, so a mid-turn pod death
     // leaves a record the next pod resumes (see main.ts). Removed on completion.
@@ -126,12 +204,32 @@ export async function startSlack(
 
   app.message(async ({ message, say, client }) => {
     const m = message as any;
-    if (m.channel_type !== "im" || m.subtype) return;
+    if (m.subtype) return;
+    if (m.channel_type !== "im") {
+      // Thread follow: answer replies in a thread the agent is already part of,
+      // without needing an @mention (config.followThreads).
+      if (!config.followThreads || m.bot_id) return;
+      if (m.channel_type !== "channel" && m.channel_type !== "group") return;
+      if (!m.thread_ts || m.thread_ts === m.ts) return; // only replies inside a thread
+      const text: string = m.text ?? "";
+      if (text.includes(`<@${botUserId}>`)) return; // app_mention already handles it
+      if (/<@[UW][A-Z0-9]+>/.test(text)) return; // addressed to someone else
+      if (allowed.size > 0 && !allowed.has(m.channel)) return;
+      if (!isEngaged?.(`${m.channel}-${m.thread_ts}`)) return; // not a thread the agent is in
+      await handle(m, say, client, false);
+      return;
+    }
+    if (dmRestricted && (!m.user || !dmAllowed.has(m.user))) {
+      if (!m.bot_id) {
+        await say({ text: "Sorry — I'm restricted to specific users. Ask my admin for access." });
+      }
+      return;
+    }
     await handle(m, say, client, false);
   });
 
   await app.start();
-  console.log(`[slack] connected as ${auth.user} (${botUserId})`);
+  console.log(`[slack] connected as ${auth.user} (${botUserId})${config.followThreads ? " — following threads without @mention" : ""}`);
   return {
     app,
     botUserId,

@@ -8,3 +8,6 @@ node_modules
 .git
 # nested agent git repos (agents are version-controlled separately — agents/README.md)
 **/.git
+agents/*/*tokens*.json
+agents/*/*oauth-client*.json
+agents/*/*-legacy.md

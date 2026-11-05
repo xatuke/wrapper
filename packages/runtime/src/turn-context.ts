@@ -10,6 +10,8 @@ export interface TurnContext {
   userId?: string;
   threadTs?: string;
   trigger?: string;
+  /** Messages posted via slack_message during this turn (mutable counter). */
+  posted?: number;
 }
 
 export const turnContext = new AsyncLocalStorage<TurnContext>();

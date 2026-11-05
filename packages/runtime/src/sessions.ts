@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -15,6 +16,11 @@ export class SessionStore {
 
   private fileFor(key: string): string {
     return join(this.dir, key.replace(/[^a-zA-Z0-9_.-]/g, "_") + ".json");
+  }
+
+  /** True if a transcript exists for this conversation. */
+  has(key: string): boolean {
+    return existsSync(this.fileFor(key));
   }
 
   async load(key: string): Promise<AgentMessage[]> {

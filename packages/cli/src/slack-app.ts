@@ -8,6 +8,9 @@ const BOT_SCOPES = [
   "channels:history",
   "channels:read",
   "groups:read",
+  "groups:history",
+  "users:read",
+  "users:read.email",
   "chat:write",
   "im:history",
   "im:write",
@@ -26,7 +29,7 @@ export function buildManifest(agentName: string): object {
     },
     oauth_config: { scopes: { bot: BOT_SCOPES } },
     settings: {
-      event_subscriptions: { bot_events: ["app_mention", "message.im"] },
+      event_subscriptions: { bot_events: ["app_mention", "message.im", "message.channels", "message.groups"] },
       interactivity: { is_enabled: true },
       org_deploy_enabled: false,
       socket_mode_enabled: true,
