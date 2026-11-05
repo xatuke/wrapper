@@ -56,7 +56,8 @@ Then edit:
 
 - `agents/<name>/prompt.md` — the system prompt.
 - `agents/<name>/agent.yaml` — `model` (`provider/model-id`), `channels`
-  (@mention allowlist; DMs always answered), `tools` (paths), `features`
+  (@mention allowlist), `dmUsers` (DM allowlist — IDs/@handles/emails; empty =
+  everyone), `tools` (paths), `features`
   (any of `cron`, `memory`, `workspace` — self-scheduling, persistent memory,
   file workspace).
 - `agents/<name>/tools/*.ts` — default-export an `AgentTool`
@@ -74,9 +75,10 @@ Rules that matter (details + rationale in `docs/agents.md`):
   mode 0600). Never hardcode, never commit, never print token values.
 - Tool args come from the model = untrusted: `execFile` with argv arrays, no
   string-built shell commands; validate/encode inputs.
-- Prefer read-only credentials for tools — anyone in the Slack workspace can
-  DM the bot (there is no per-user auth), so assume every tool is reachable
-  by every member.
+- Prefer read-only credentials for tools — by default anyone in the Slack
+  workspace can DM the bot (`dmUsers` can restrict this, but channel mentions
+  are still open to all members of allowed channels), so assume every tool is
+  reachable broadly.
 - Extra npm packages or CLIs → agent `Dockerfile` `FROM wrapper-runtime:latest`
   (example in `docs/agents.md`); end with `USER node` (read-only rootfs,
   non-root).

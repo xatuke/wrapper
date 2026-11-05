@@ -44,6 +44,8 @@ mode: chat                    # chat | workspace (reserved for code-work agents)
 model: anthropic/claude-sonnet-4-5   # required: provider/model-id (pi-ai)
 systemPrompt: ./prompt.md     # path to a file, or the literal prompt text
 channels: ["#support"]        # @mention allowlist; [] = respond wherever invited
+dmUsers: []                   # DM allowlist (IDs/@handles/emails); [] = everyone
+followThreads: false          # reply in threads it is part of without @mention
 tools:                        # custom tool modules, paths relative to this dir
   - ./tools/lookup-order.ts
 features: [cron, memory, workspace]   # opt-in runtime builtins (see below)
@@ -84,9 +86,21 @@ Notes:
 - **systemPrompt** — if the value (< 500 chars) is a path to an existing file,
   the file's contents are used; otherwise the value itself is the prompt.
 - **channels** — names (`#support`) or IDs (`C0…`). Applies to channel
-  @mentions only; **DMs are always answered**. There is currently no per-user
-  authorization — assume every workspace member can talk to the agent, and
-  scope its tools/credentials accordingly.
+  @mentions only; DMs are governed by `dmUsers`.
+- **dmUsers** — who may DM the agent: Slack user IDs (`U0…`), `@handles`,
+  display/real names, or emails (resolved against the member list at startup —
+  check the startup log for "DMs restricted to N user(s)" and unresolved-name
+  warnings). `[]` = anyone may DM. Everyone else gets a polite refusal. Note
+  this gates DMs only — in allowed channels, any member who can @mention the
+  bot gets answered — so still prefer read-only tool credentials.
+- **followThreads** — when true, the agent answers every reply in a channel
+  thread it is already part of, without needing an @mention (replies that tag
+  someone else are ignored). Needs the `message.channels` / `message.groups`
+  events in the Slack app manifest (re-apply the manifest after enabling).
+- **Mid-turn messages** — a message sent to a conversation while the agent is
+  working is injected into the running request instead of queued; `stop` /
+  `cancel` ends the request immediately. The agent can post progress with the
+  built-in `slack_message` tool.
 
 ## How conversations work
 

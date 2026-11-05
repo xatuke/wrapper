@@ -9,10 +9,13 @@ export interface AgentConfig {
   model: string; // "provider/model-id"
   systemPrompt: string; // resolved to the actual prompt text
   channels: string[]; // channel names or IDs the agent responds in; empty = anywhere invited
+  dmUsers: string[]; // users allowed to DM (IDs, @handles, or emails); empty = everyone
   tools: string[]; // paths to tool modules, relative to the agent dir
   features: string[]; // runtime builtins to enable: cron | memory | workspace | code | slack-files
   mcpServers: McpServerConfig[]; // stdio MCP servers to bridge in
   thinkingLevel?: string;
+  /** Reply to every message in a channel thread the agent is already part of, even without an @mention. Needs the message.channels / message.groups events in the Slack manifest. */
+  followThreads: boolean;
 }
 
 export interface McpServerConfig {
@@ -47,10 +50,12 @@ export async function loadAgentConfig(agentDir: string): Promise<AgentConfig> {
     model: String(raw.model),
     systemPrompt,
     channels: Array.isArray(raw.channels) ? raw.channels.map(String) : [],
+    dmUsers: Array.isArray(raw.dmUsers) ? raw.dmUsers.map(String) : [],
     tools: Array.isArray(raw.tools) ? raw.tools.map(String) : [],
     features: Array.isArray(raw.features) ? raw.features.map(String) : [],
     mcpServers: Array.isArray(raw.mcpServers) ? raw.mcpServers : [],
     thinkingLevel: raw.thinkingLevel ? String(raw.thinkingLevel) : undefined,
+    followThreads: raw.followThreads === true,
   };
 }
 
